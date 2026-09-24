@@ -8,7 +8,9 @@ Localhost-only PowerShell demo: static files from `www/` plus allowlisted API sc
 pwsh -File .\web.ps1 -Port 8080
 ```
 
-Open http://localhost:8080/ and use **Call /api/hello**.
+Open http://localhost:8080/ and use **GET /api/hello**.
+
+`POST /api/shutdown` (token required) stops the server after responding — use only locally.
 
 Access lines append to `logs/access.log` (gitignored): time, method, path, status, remote IP — never token, query, body, or cookies.
 

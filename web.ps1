@@ -27,7 +27,8 @@ $MimeHash = @{
 
 # Allowlisted API routes -> script names under controller/api/
 $ApiRoutes = @{
-    "GET:/api/hello" = "hello.ps1"
+    "GET:/api/hello"     = "hello.ps1"
+    "POST:/api/shutdown" = "shutdown.ps1"
 }
 
 $scriptRoot = $PSScriptRoot
@@ -43,6 +44,8 @@ $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $tokenBytes = New-Object byte[] 32
 $rng.GetBytes($tokenBytes)
 $script:LocalToken = ($tokenBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+$script:ShouldShutdown = $false
+
 $script:AllowedOrigins = @(
     "http://localhost:$Port",
     "http://127.0.0.1:$Port"
@@ -215,6 +218,10 @@ try {
                 }
                 Write-AccessLog -Context $context -Method $method -Path $localPath
                 $context.Response.Close()
+                if ($script:ShouldShutdown) {
+                    Write-Host "Shutdown requested — stopping listener" -ForegroundColor Yellow
+                    break
+                }
                 continue
             }
 

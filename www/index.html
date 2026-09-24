@@ -26,10 +26,11 @@
     </p>
     <p>
       <button type="button" id="btn-get">GET /api/hello</button>
+      <button type="button" id="btn-shutdown">POST /api/shutdown</button>
     </p>
     <pre id="out">(not called yet)</pre>
     <script type="module">
-      import { apiGet } from "./js/local-api.js";
+      import { apiGet, apiPost } from "./js/local-api.js";
 
       const out = document.getElementById("out");
       document.getElementById("btn-get").addEventListener("click", async () => {
@@ -41,6 +42,19 @@
           out.textContent = String(result.status) + "\n" + body;
         } catch (err) {
           out.textContent = "Request failed";
+        }
+      });
+
+      document.getElementById("btn-shutdown").addEventListener("click", async () => {
+        if (!window.confirm("Stop the local server?")) return;
+        try {
+          const result = await apiPost("/api/shutdown", {});
+          const body = result.json
+            ? JSON.stringify(result.json, null, 2)
+            : result.text;
+          out.textContent = String(result.status) + "\n" + body;
+        } catch (err) {
+          out.textContent = "Request failed (server may have stopped)";
         }
       });
     </script>
