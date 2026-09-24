@@ -5,32 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Generic web server demo</title>
     <style>
-      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
       code { background: #f4f4f0; padding: 0.1em 0.35em; border-radius: 4px; }
-      pre { background: #f4f4f0; padding: 0.75rem 1rem; border-radius: 8px; overflow: auto; }
-      button { padding: 0.5rem 0.9rem; cursor: pointer; }
+      pre { background: #f4f4f0; padding: 0.75rem 1rem; border-radius: 8px; overflow: auto; min-height: 4rem; }
+      button { padding: 0.5rem 0.9rem; cursor: pointer; margin-right: 0.5rem; margin-top: 0.5rem; }
+      .muted { color: #555; font-size: 0.95rem; }
     </style>
   </head>
   <body>
     <h1>Generic web server</h1>
-    <p>Localhost-only demo. Static files from <code>www/</code>; API allowlist includes <code>GET /api/hello</code> with <code>X-Local-Token</code>.</p>
-    <button type="button" id="btn">Call /api/hello</button>
+    <p>
+      Localhost-only demo. Static files come from <code>www/</code>.
+      API calls go through <code>./js/local-api.js</code>, which reads the
+      server-injected <code>local-token</code> meta and sends
+      <code>X-Local-Token</code>.
+    </p>
+    <p class="muted">
+      Link the module from any page:
+      <code>&lt;script type="module"&gt;import { apiGet, apiPost } from "./js/local-api.js";&lt;/script&gt;</code>
+    </p>
+    <p>
+      <button type="button" id="btn-get">GET /api/hello</button>
+    </p>
     <pre id="out">(not called yet)</pre>
-    <script>
-      function localToken() {
-        const el = document.querySelector('meta[name="local-token"]');
-        return el ? el.getAttribute("content") : "";
-      }
-      document.getElementById("btn").addEventListener("click", async () => {
-        const out = document.getElementById("out");
+    <script type="module">
+      import { apiGet } from "./js/local-api.js";
+
+      const out = document.getElementById("out");
+      document.getElementById("btn-get").addEventListener("click", async () => {
         try {
-          const res = await fetch("/api/hello", {
-            headers: { "X-Local-Token": localToken() },
-          });
-          const text = await res.text();
-          out.textContent = res.status + "\n" + text;
+          const result = await apiGet("/api/hello");
+          const body = result.json
+            ? JSON.stringify(result.json, null, 2)
+            : result.text;
+          out.textContent = String(result.status) + "\n" + body;
         } catch (err) {
-          out.textContent = String(err);
+          out.textContent = "Request failed";
         }
       });
     </script>
