@@ -13,14 +13,20 @@
   </head>
   <body>
     <h1>Generic web server</h1>
-    <p>Localhost-only demo. Static files from <code>www/</code>; API allowlist includes <code>GET /api/hello</code>.</p>
+    <p>Localhost-only demo. Static files from <code>www/</code>; API allowlist includes <code>GET /api/hello</code> with <code>X-Local-Token</code>.</p>
     <button type="button" id="btn">Call /api/hello</button>
     <pre id="out">(not called yet)</pre>
     <script>
+      function localToken() {
+        const el = document.querySelector('meta[name="local-token"]');
+        return el ? el.getAttribute("content") : "";
+      }
       document.getElementById("btn").addEventListener("click", async () => {
         const out = document.getElementById("out");
         try {
-          const res = await fetch("/api/hello");
+          const res = await fetch("/api/hello", {
+            headers: { "X-Local-Token": localToken() },
+          });
           const text = await res.text();
           out.textContent = res.status + "\n" + text;
         } catch (err) {

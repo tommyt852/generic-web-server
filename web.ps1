@@ -34,6 +34,17 @@ $scriptRoot = $PSScriptRoot
 $webRoot = [IO.Path]::GetFullPath((Join-Path $scriptRoot $WebPath))
 $apiRoot = [IO.Path]::GetFullPath((Join-Path $scriptRoot (Join-Path $ControllerPath "api")))
 
+# Per-process token: injected into HTML we serve; required on API calls.
+# Stops casual cross-site calls from other origins. Does not stop same-user malware.
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$tokenBytes = New-Object byte[] 32
+$rng.GetBytes($tokenBytes)
+$script:LocalToken = ($tokenBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+$script:AllowedOrigins = @(
+    "http://localhost:$Port",
+    "http://127.0.0.1:$Port"
+)
+
 function Test-UnderRoot {
     param(
         [Parameter(Mandatory = $true)][String]$Root,
@@ -73,11 +84,28 @@ function Send-Text {
     $Context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
 }
 
+function Test-LocalApiGate {
+    param([Parameter(Mandatory = $true)]$Context)
+
+    $provided = $Context.Request.Headers["X-Local-Token"]
+    if ([String]::IsNullOrEmpty($provided) -or -not [String]::Equals($provided, $script:LocalToken, [StringComparison]::Ordinal)) {
+        Send-Json -Context $Context -Body @{ status = "error"; message = "Unauthorized" } -StatusCode 401
+        return $false
+    }
+
+    $origin = $Context.Request.Headers["Origin"]
+    if (-not [String]::IsNullOrEmpty($origin) -and ($script:AllowedOrigins -notcontains $origin)) {
+        Send-Json -Context $Context -Body @{ status = "error"; message = "Forbidden origin" } -StatusCode 403
+        return $false
+    }
+
+    return $true
+}
+
 function Resolve-SafeWebFile {
     param([Parameter(Mandatory = $true)][String]$LocalPath)
     $rel = $LocalPath.TrimStart('/', '\')
     if ([String]::IsNullOrWhiteSpace($rel)) { $rel = "index.html" }
-    # Block empty segments / traversal tokens before combine
     foreach ($part in ($rel -split '[\\/]+')) {
         if ($part -eq ".." -or $part -eq "." -or $part -match '^[a-zA-Z]:$') {
             return $null
@@ -98,6 +126,16 @@ function Resolve-SafeApiScript {
     return $candidate
 }
 
+function Get-HtmlWithToken {
+    param([Parameter(Mandatory = $true)][String]$FilePath)
+    $html = [IO.File]::ReadAllText($FilePath, [Text.Encoding]::UTF8)
+    $inject = "<meta name=`"local-token`" content=`"$($script:LocalToken)`" />"
+    if ($html -match '(?i)</head>') {
+        return [System.Text.RegularExpressions.Regex]::Replace($html, '(?i)</head>', "$inject</head>", 1)
+    }
+    return $inject + $html
+}
+
 if (-not (Test-Path -LiteralPath $webRoot -PathType Container)) {
     throw "Web root not found: $webRoot"
 }
@@ -111,6 +149,7 @@ $http.Prefixes.Add("http://localhost:$Port/")
 $http.Start()
 
 Write-Host "HTTP server ready on http://localhost:$Port/ (localhost-only)" -ForegroundColor Green
+Write-Host "API calls require header X-Local-Token (injected into HTML pages we serve)." -ForegroundColor DarkYellow
 
 try {
     while ($http.IsListening) {
@@ -122,14 +161,24 @@ try {
 
             Write-Host ("{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $method, $localPath)
 
+            # Never send Access-Control-Allow-Origin for other sites.
+            if ($method -eq "OPTIONS") {
+                Send-Text -Context $context -Text "" -StatusCode 204
+                $context.Response.Close()
+                continue
+            }
+
             if ($ApiRoutes.ContainsKey($routeKey)) {
+                if (-not (Test-LocalApiGate -Context $context)) {
+                    $context.Response.Close()
+                    continue
+                }
                 $scriptFile = Resolve-SafeApiScript -FileName $ApiRoutes[$routeKey]
                 if (-not $scriptFile) {
                     Send-Json -Context $context -Body @{ status = "error"; message = "API unavailable" } -StatusCode 404
                 }
                 else {
                     try {
-                        # Controllers may read $context; keep request vars available
                         $script:RequestContext = $context
                         . $scriptFile
                     }
@@ -151,11 +200,21 @@ try {
                 else {
                     $ext = [IO.Path]::GetExtension($file).ToLowerInvariant()
                     $contentType = if ($MimeHash.ContainsKey($ext)) { $MimeHash[$ext] } else { "application/octet-stream" }
-                    $bytes = [IO.File]::ReadAllBytes($file)
-                    $context.Response.StatusCode = 200
-                    $context.Response.ContentType = $contentType
-                    $context.Response.ContentLength64 = $bytes.Length
-                    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    if ($ext -eq ".html" -or $ext -eq ".htm") {
+                        $html = Get-HtmlWithToken -FilePath $file
+                        $bytes = [Text.Encoding]::UTF8.GetBytes($html)
+                        $context.Response.StatusCode = 200
+                        $context.Response.ContentType = "text/html; charset=utf-8"
+                        $context.Response.ContentLength64 = $bytes.Length
+                        $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    }
+                    else {
+                        $bytes = [IO.File]::ReadAllBytes($file)
+                        $context.Response.StatusCode = 200
+                        $context.Response.ContentType = $contentType
+                        $context.Response.ContentLength64 = $bytes.Length
+                        $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    }
                 }
                 $context.Response.Close()
                 continue
