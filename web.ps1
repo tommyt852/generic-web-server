@@ -34,6 +34,9 @@ $scriptRoot = $PSScriptRoot
 $webRoot = [IO.Path]::GetFullPath((Join-Path $scriptRoot $WebPath))
 $apiRoot = [IO.Path]::GetFullPath((Join-Path $scriptRoot (Join-Path $ControllerPath "api")))
 
+$script:LogDir = [IO.Path]::GetFullPath((Join-Path $scriptRoot "logs"))
+$script:LogFile = Join-Path $script:LogDir "access.log"
+
 # Per-process token: injected into HTML we serve; required on API calls.
 # Stops casual cross-site calls from other origins. Does not stop same-user malware.
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -136,6 +139,28 @@ function Get-HtmlWithToken {
     return $inject + $html
 }
 
+function Write-AccessLog {
+    param(
+        [Parameter(Mandatory = $true)]$Context,
+        [Parameter(Mandatory = $true)][String]$Method,
+        [Parameter(Mandatory = $true)][String]$Path
+    )
+    # Log only time, method, path, status, remote IP — never token, query, body, or cookies.
+    $status = $Context.Response.StatusCode
+    $remote = $Context.Request.RemoteEndPoint.Address.ToString()
+    $line = "{0:yyyy-MM-dd HH:mm:ss} {1} {2} {3} {4}" -f (Get-Date), $Method, $Path, $status, $remote
+    Write-Host $line
+    try {
+        if (-not (Test-Path -LiteralPath $script:LogDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $script:LogDir | Out-Null
+        }
+        Add-Content -LiteralPath $script:LogFile -Value $line -Encoding utf8
+    }
+    catch {
+        Write-Host "access log write failed: $($_.Exception.Message)" -ForegroundColor DarkYellow
+    }
+}
+
 if (-not (Test-Path -LiteralPath $webRoot -PathType Container)) {
     throw "Web root not found: $webRoot"
 }
@@ -150,6 +175,7 @@ $http.Start()
 
 Write-Host "HTTP server ready on http://localhost:$Port/ (localhost-only)" -ForegroundColor Green
 Write-Host "API calls require header X-Local-Token (injected into HTML pages we serve)." -ForegroundColor DarkYellow
+Write-Host "Access log: $script:LogFile" -ForegroundColor DarkYellow
 
 try {
     while ($http.IsListening) {
@@ -159,17 +185,17 @@ try {
             $localPath = $context.Request.Url.LocalPath
             $routeKey = "$method:$localPath"
 
-            Write-Host ("{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $method, $localPath)
-
             # Never send Access-Control-Allow-Origin for other sites.
             if ($method -eq "OPTIONS") {
                 Send-Text -Context $context -Text "" -StatusCode 204
+                Write-AccessLog -Context $context -Method $method -Path $localPath
                 $context.Response.Close()
                 continue
             }
 
             if ($ApiRoutes.ContainsKey($routeKey)) {
                 if (-not (Test-LocalApiGate -Context $context)) {
+                    Write-AccessLog -Context $context -Method $method -Path $localPath
                     $context.Response.Close()
                     continue
                 }
@@ -187,6 +213,7 @@ try {
                         Send-Json -Context $context -Body @{ status = "error"; message = "Internal error" } -StatusCode 500
                     }
                 }
+                Write-AccessLog -Context $context -Method $method -Path $localPath
                 $context.Response.Close()
                 continue
             }
@@ -216,11 +243,13 @@ try {
                         $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
                     }
                 }
+                Write-AccessLog -Context $context -Method $method -Path $localPath
                 $context.Response.Close()
                 continue
             }
 
             Send-Json -Context $context -Body @{ status = "error"; message = "Method not allowed" } -StatusCode 405
+            Write-AccessLog -Context $context -Method $method -Path $localPath
             $context.Response.Close()
         }
         catch {

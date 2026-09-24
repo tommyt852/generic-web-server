@@ -10,6 +10,8 @@ pwsh -File .\web.ps1 -Port 8080
 
 Open http://localhost:8080/ and use **Call /api/hello**.
 
+Access lines append to `logs/access.log` (gitignored): time, method, path, status, remote IP — never token, query, body, or cookies.
+
 ## Security model
 
 This server is for **local demos only**.

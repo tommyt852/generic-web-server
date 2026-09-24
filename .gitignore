@@ -13,3 +13,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Runtime logs (may contain local access metadata)
+logs/
