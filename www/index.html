@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generic web server demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+      code { background: #f4f4f0; padding: 0.1em 0.35em; border-radius: 4px; }
+      pre { background: #f4f4f0; padding: 0.75rem 1rem; border-radius: 8px; overflow: auto; }
+      button { padding: 0.5rem 0.9rem; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>Generic web server</h1>
+    <p>Localhost-only demo. Static files from <code>www/</code>; API allowlist includes <code>GET /api/hello</code>.</p>
+    <button type="button" id="btn">Call /api/hello</button>
+    <pre id="out">(not called yet)</pre>
+    <script>
+      document.getElementById("btn").addEventListener("click", async () => {
+        const out = document.getElementById("out");
+        try {
+          const res = await fetch("/api/hello");
+          const text = await res.text();
+          out.textContent = res.status + "\n" + text;
+        } catch (err) {
+          out.textContent = String(err);
+        }
+      });
+    </script>
+  </body>
+</html>
